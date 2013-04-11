@@ -13,5 +13,7 @@ Gem::Specification.new do |s|
   s.default_executable = 'zoomify'
   s.has_rdoc = true
   s.extra_rdoc_files = ['README.markdown']
-  s.add_dependency('rmagick')
+
+  s.add_dependency('mini_magick')
+  s.add_development_dependency 'rspec'
 end

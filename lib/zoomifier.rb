@@ -1,7 +1,7 @@
 require 'fileutils'
 require 'open-uri'
 require 'rubygems'
-require 'rmagick'
+require 'mini_magick'
 
 # Breaks up images into tiles suitable for viewing with Zoomify.
 # See http://zoomify.com/ for more details.
@@ -42,17 +42,23 @@ module Zoomifier
     tmpdir = "#{outputdir}/tmp"
     Dir.mkdir(tmpdir)
     tilesdir = nil
-    image = Magick::Image.read(filename).first.strip!
+    original_image = MiniMagick::Image.open(filename)
     # Each level of zoom is a factor of 2. Here we obtain the number of zooms
     # allowed by the original file dimensions and the constant tile size.
-    levels = (Math.log([image.rows, image.columns].max.to_f / TILESIZE) / Math.log(2)).ceil
+    levels = (Math.log([original_image['height'], original_image['width']].max.to_f / TILESIZE) / Math.log(2)).ceil
     tiles = 0
     (0..levels).each do |level|
       n = levels - level
       # Obtain the image to tile for this level. The 0th level should consist
       # of one tile, while the highest level should be the original image.
-      level_image = image.resize(image.columns >> n, image.rows >> n)
-      tiles(tmpdir, level, level_image) do |filename|
+
+      create_image = proc {
+        image = MiniMagick::Image.open(filename)
+        image.resize("#{image['width'] >> n}x#{image['height'] >> n}")
+        image
+      }
+
+      tiles(tmpdir, level, create_image) do |filename|
         # The tile images are chunked into directories named TileGroupN, N
         # starting at 0 and increasing monotonically. Each directory contains
         # at most 256 images. The images are sorted by level, tile row, and
@@ -66,34 +72,36 @@ module Zoomifier
         tiles += 1
       end
       # Rmagick needs a bit of help freeing image memory.
-      level_image = nil
       GC.start
     end
     File.open("#{outputdir}/ImageProperties.xml", 'w') do |f|
-      f.write("<IMAGE_PROPERTIES WIDTH=\"#{image.columns}\" HEIGHT=\"#{image.rows}\" NUMTILES=\"#{tiles}\" NUMIMAGES=\"1\" VERSION=\"1.8\" TILESIZE=\"#{TILESIZE}\" />")
+      f.write("<IMAGE_PROPERTIES WIDTH=\"#{original_image['width']}\" HEIGHT=\"#{original_image['height']}\" NUMTILES=\"#{tiles}\" NUMIMAGES=\"1\" VERSION=\"1.8\" TILESIZE=\"#{TILESIZE}\" />")
     end
-    Dir.rmdir(tmpdir)
+    FileUtils.rm_rf(tmpdir)
     outputdir
   end
 
   # Splits the given image up into images of TILESIZE, writes them to the
   # given directory, and yields their names
   def self.tiles(dir, level, image)
-    slice(image.rows).each_with_index do |y_slice, j|
-      slice(image.columns).each_with_index do |x_slice, i|
+    my_image = image.()
+
+    original_width = my_image['width']
+    original_height = my_image['height']
+
+    my_image.write "#{dir}/_tmp.jpg"
+
+    slice(original_height).each_with_index do |y_slice, j|
+      slice(original_width).each_with_index do |x_slice, i|
         # The images are named "level-column-row.jpg"
         filename = "#{level}-#{i}-#{j}.jpg"
-        tile_image = image.crop(x_slice[0], y_slice[0], x_slice[1], y_slice[1])
-        tile_image.write("#{dir}/#{filename}") do
-          # FIXME - the images end up being 4-5x larger than those produced
-          # by Zoomifier EZ and friends... no idea why just yet, except to note
-          # that the density of these tiles ends up being 400x400, while
-          # everybody else produces tiles at 72x72. Can't see why that would
-          # matter though...
-          self.quality = 80 
-        end
+
+        new_image = MiniMagick::Image.open("#{dir}/_tmp.jpg")
+
+        new_image.crop("#{x_slice[1]}x#{y_slice[1]}+#{x_slice[0]}+#{y_slice[0]}")
+        new_image.strip
+        new_image.write("#{dir}/#{filename}")
         # Rmagick needs a bit of help freeing image memory.
-        tile_image = nil
         GC.start
         yield filename
       end

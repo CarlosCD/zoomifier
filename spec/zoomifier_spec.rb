@@ -6,7 +6,7 @@ describe Zoomifier do
     Zoomifier.should respond_to(:zoomify)
   end
 
-  describe "all images", :shared => true do
+  shared_examples "all images" do
     before(:all) do
       FileUtils.rm_rf(@output)
       Zoomifier::zoomify(@input)
@@ -31,9 +31,9 @@ describe Zoomifier do
 
     it "should create tiles of 256x256 or less" do
       @tiles.each do |file|
-        image = Magick::Image.read(@output + file).first
-        image.rows.should <= 256
-        image.columns.should <= 256
+        image = MiniMagick::Image.open(@output + file)
+        image['width'].should <= 256
+        image['height'].should <= 256
       end
     end
 
